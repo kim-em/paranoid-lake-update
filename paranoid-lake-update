@@ -895,15 +895,15 @@ def publish_gist(out: Path, plan: dict, public: bool, dry_run: bool) -> Optional
 COMMENT_INTRO = """\
 :robot: **Dependency update audit requested**
 
-This PR pulls in new revisions of the dependencies listed below.  `lake update`
-runs each dependency's `lakefile` at configuration time and the Lean compiler
-runs their code at elaboration time, so before this PR is merged someone should
-read the complete diffs and look for malicious or suspicious code.  **Nothing
-here has been audited yet.**  This comment is written as a prompt: a human can
-follow it, or hand it to an AI agent as-is.
+This PR pulls in the upstream changes listed below.  `lake update` runs each
+dependency's `lakefile` at configuration time and the Lean compiler runs their
+code at elaboration time, so someone should read the complete diffs and look
+for malicious or suspicious code before this PR is merged.  **Nothing here has
+been audited yet.**  Instructions for auditors, human or AI, are at the end of
+this comment; the whole comment can be handed to an AI agent as-is.
+"""
 
-**Instructions for the auditor (human or AI):**
-
+COMMENT_STEPS = """\
 1. Fetch the complete diff of every package in the list below.  Each *raw diff*
    link returns the unified diff as plain text (`curl -L <url>`), and *raw
    patch* returns the same change split per commit with author and date.  The
@@ -944,9 +944,7 @@ def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[
     def nested(block: str) -> str:
         # Continuation lines of a numbered item must be indented to its text (3 spaces).
         return "\n".join(("   " + ln.rstrip()) if ln.strip() else "" for ln in block.rstrip("\n").splitlines())
-    parts = [COMMENT_MARKER, COMMENT_INTRO.rstrip("\n"), nested(SCRUTINY), "", nested(NOT_FINDINGS), "",
-             COMMENT_OUTRO.rstrip("\n"), nested(REPORT_FORMAT), "",
-             COMMENT_REACT.format(repo=repo or "OWNER/REPO", comment_id=comment_id or "COMMENT_ID").rstrip("\n"), ""]
+    parts = [COMMENT_MARKER, COMMENT_INTRO.rstrip("\n"), ""]
     if pk:
         parts.append("**Diffs to read** (old to new):")
         parts.append("")
@@ -984,6 +982,11 @@ def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[
         parts.append("Material: " + "; ".join(links) + ".")
         parts.append("")
     parts.append(summary.strip())
+    parts.append("")
+    steps = "\n".join([COMMENT_STEPS.rstrip("\n"), nested(SCRUTINY), "", nested(NOT_FINDINGS), "",
+                        COMMENT_OUTRO.rstrip("\n"), nested(REPORT_FORMAT), "",
+                        COMMENT_REACT.format(repo=repo or "OWNER/REPO", comment_id=comment_id or "COMMENT_ID").rstrip("\n")])
+    parts.append("<details><summary><b>Instructions for the auditor (human or AI)</b></summary>\n\n" + steps + "\n\n</details>")
     parts.append("")
     for a in plan.get("audits", []):
         body = (out / a["file"]).read_text()
