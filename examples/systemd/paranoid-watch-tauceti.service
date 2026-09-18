@@ -1,0 +1,12 @@
+[Unit]
+Description=Audit new Tau Ceti commits for malicious code
+
+[Service]
+Type=oneshot
+# claude/codex are installed under ~/.local/bin and ~/.npm-global/bin on Kim's machines.
+Environment=PATH=%h/.local/bin:%h/.npm-global/bin:%h/bin:/run/current-system/sw/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/paranoid-lake-update/paranoid-lake-update watch \
+    --repo https://github.com/TauCetiProject/TauCeti --branch main \
+    --audit claude \
+    --notify '%h/paranoid-lake-update/examples/systemd/notify-flagged.sh'
+Nice=10
