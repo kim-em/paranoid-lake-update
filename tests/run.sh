@@ -149,7 +149,11 @@ set +e
 "$TOOL" audit --out "$T/out1" --audit command --command 'cat >/dev/null; echo "no verdict here"' >/dev/null
 rc=$?; set -e
 [ $rc = 3 ] || fail "no-verdict audit exit $rc"
-pass "audit exit codes: clean 0, malicious 1, no verdict 3"
+set +e
+"$TOOL" audit --out "$T/out1" --audit command --command 'cat >/dev/null; echo "VERDICT: INCOMPLETE"' >/dev/null
+rc=$?; set -e
+[ $rc = 3 ] || fail "incomplete audit exit $rc"
+pass "audit exit codes: clean 0, malicious 1, no verdict or incomplete 3"
 
 set +e
 "$TOOL" audit --out "$T/out1" --audit command --command 'cat >/dev/null; echo VERDICT: SUSPICIOUS' \
@@ -179,6 +183,9 @@ grep -q 'Instructions for the auditor' "$T/out1/comment.md" || fail "comment lac
 grep -q 'repos/example/repo/issues/comments/COMMENT_ID/reactions -f content=eyes' "$T/out1/comment.md" || fail "comment lacks reaction command"
 grep -q 'VERDICT: CLEAN' "$T/out1/comment.md" || fail "comment lacks report format"
 grep -q '^- \*\*libB\*\*' "$T/out1/comment.md" || fail "comment lacks diff list"
+grep -q '^  - `[0-9a-f]\{10\}` [0-9-]\{10\} tester: libB v2' "$T/out1/comment.md" || fail "comment lacks commit list"
+grep -q 'VERDICT: INCOMPLETE' "$T/out1/comment.md" || fail "comment lacks INCOMPLETE verdict"
+grep -q 'issue comment' "$T/out1/comment.md" || fail "comment lacks issue-comment instruction"
 grep -q 'VERDICT' "$T/out1/comment.md" || fail "comment lacks audit"
 pass "publish --dry-run renders comment.md"
 
