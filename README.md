@@ -105,10 +105,11 @@ stops.
 `examples/mathlib-update_dependencies.patch` shows the steps added to Mathlib's hourly
 `update_dependencies.yml`: after `lake update`, run `compare --base origin/master`
 (plus `--extra` for the `mathlib-ci` pin that the same PR bumps), upload the output as
-a workflow artifact, and once the PR exists, comment on it. Two optional secrets turn
-on more: a token with `gist` scope makes the comment link a gist, and an Anthropic API
-key makes the runner audit the diffs with Claude and drop the `auto-merge-after-CI`
-label when the verdict is not CLEAN.
+a workflow artifact, and once the PR exists, comment on it. The comment links every
+upstream commit and GitHub's `old...new` compare view, so no gist or extra secret is
+needed; reviewers run the AI audit locally with
+`paranoid-lake-update compare --base origin/master --audit claude` in a checkout of
+the PR branch, which is the command quoted in the comment.
 
 ## Watching a repository (e.g. Tau Ceti)
 
