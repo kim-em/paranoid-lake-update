@@ -175,7 +175,10 @@ pass "auditor runs in the output dir with the prompt on stdin"
 
 "$TOOL" publish --out "$T/out1" --comment-pr 1 --github-repo example/repo --gist --dry-run >/dev/null
 grep -q '<!-- paranoid-lake-update -->' "$T/out1/comment.md" || fail "comment marker"
-grep -q 'Run your own audit' "$T/out1/comment.md" || fail "comment lacks prompt"
+grep -q 'Instructions for the auditor' "$T/out1/comment.md" || fail "comment lacks instructions"
+grep -q 'repos/example/repo/issues/comments/COMMENT_ID/reactions -f content=eyes' "$T/out1/comment.md" || fail "comment lacks reaction command"
+grep -q 'VERDICT: CLEAN' "$T/out1/comment.md" || fail "comment lacks report format"
+grep -q '^- \*\*libB\*\*' "$T/out1/comment.md" || fail "comment lacks diff list"
 grep -q 'VERDICT' "$T/out1/comment.md" || fail "comment lacks audit"
 pass "publish --dry-run renders comment.md"
 
