@@ -935,7 +935,7 @@ decision, not approval.
 
 
 def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[str],
-                  repo: Optional[str] = None, comment_id: Optional[str] = None) -> str:
+                  repo: Optional[str] = None, comment_id: Optional[str] = None, updated: bool = False) -> str:
     summary = (out / "SUMMARY.md").read_text()
     # Drop the H1 and the "Generated ..." line: the comment has its own opening.
     summary = re.sub(r"^# .*\n", "", summary, count=1)
@@ -945,6 +945,10 @@ def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[
         # Continuation lines of a numbered item must be indented to its text (3 spaces).
         return "\n".join(("   " + ln.rstrip()) if ln.strip() else "" for ln in block.rstrip("\n").splitlines())
     parts = [COMMENT_MARKER, COMMENT_INTRO.rstrip("\n"), ""]
+    if updated:
+        parts.append(f"**Updated {plan['generated_at']}.**  Reactions and audit reports from before this "
+                     "time refer to an earlier version of this comment.")
+        parts.append("")
     if pk:
         parts.append("**Diffs to read** (old to new):")
         parts.append("")
@@ -1006,10 +1010,25 @@ def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[
 def publish_comment(out: Path, plan: dict, pr: str, repo: Optional[str], gist: Optional[str], run_url: Optional[str], dry_run: bool) -> None:
     if not repo and not dry_run:
         repo = gh(["repo", "view", "--json", "nameWithOwner", "--jq", ".nameWithOwner"]).strip()
-    text = build_comment(out, plan, gist, run_url, repo)
     if dry_run:
+        text = build_comment(out, plan, gist, run_url, repo)
         log(f"dry run: would post {len(text)} chars to PR {pr}; see {out / 'comment.md'}")
         return
+    try:
+        existing = find_own_comment(repo, pr)
+    except (RuntimeError, ValueError, KeyError, TypeError) as e:
+        log(f"warning: could not look for an earlier audit comment, posting a new one: {e}")
+        existing = None
+    if existing:
+        build_comment(out, plan, gist, run_url, repo, existing, updated=True)
+        res = gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{existing}", "-F", f"body=@{out / 'comment.md'}",
+                  "--jq", ".html_url"]).strip()
+        log(f"updated: {res}")
+        plan["publish"]["comment"] = res
+        plan["publish"]["comment_id"] = existing
+        write_plan(out, plan)
+        return
+    build_comment(out, plan, gist, run_url, repo)
     res = gh(["pr", "comment", pr, "--repo", repo, "--body-file", str(out / "comment.md")]).strip()
     log(f"commented: {res}")
     plan["publish"]["comment"] = res
@@ -1020,6 +1039,37 @@ def publish_comment(out: Path, plan: dict, pr: str, repo: Optional[str], gist: O
         gh(["api", "-X", "PATCH", f"repos/{repo}/issues/comments/{m.group(1)}", "-F", f"body=@{out / 'comment.md'}"])
         plan["publish"]["comment_id"] = m.group(1)
     write_plan(out, plan)
+
+
+OWN_COMMENTS_QUERY = """\
+query($owner: String!, $name: String!, $pr: Int!, $endCursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) {
+      comments(first: 100, after: $endCursor) {
+        nodes { fullDatabaseId viewerDidAuthor body }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}
+"""
+
+
+def find_own_comment(repo: str, pr: str) -> Optional[str]:
+    """Id of the latest audit comment on this PR posted by the account `gh` is
+    acting as, if any.  Matching on the marker alone would not do: anyone
+    could post a comment starting with it, have the audit written into their
+    comment, and then edit it.  `viewerDidAuthor` holds for personal and
+    GitHub App tokens alike, which a comparison of logins would not."""
+    owner, name = repo.split("/", 1)
+    pages = json.loads(gh(["api", "graphql", "--paginate", "--slurp", "-f", f"owner={owner}", "-f", f"name={name}",
+                           "-F", f"pr={pr}", "-f", f"query={OWN_COMMENTS_QUERY}"]))
+    found = None
+    for page in pages:
+        for c in page["data"]["repository"]["pullRequest"]["comments"]["nodes"]:
+            if c["viewerDidAuthor"] and c["body"].startswith(COMMENT_MARKER):
+                found = c["fullDatabaseId"]
+    return found
 
 
 def do_publish(out: Path, plan: dict, args: argparse.Namespace) -> None:

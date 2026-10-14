@@ -97,8 +97,9 @@ command whenever the status is not `0` (with `PLU_OUT`, `PLU_STATUS`, `PLU_TITLE
 (`--gist-public` for a public one; files over ~950 KB are left out with a note).
 `--comment-pr N [--github-repo OWNER/REPO] [--run-url URL]` posts the summary, gist and
 artifact links, every audit report in a collapsed block, and the prompt in another, so
-anyone can rerun the audit with their own model. `--dry-run` writes `comment.md` and
-stops.
+anyone can rerun the audit with their own model. If the account `gh` acts as already
+has such a comment on that PR, that comment is updated in place, with a line saying when,
+instead of posting another. `--dry-run` writes `comment.md` and stops.
 
 ## Mathlib CI
 

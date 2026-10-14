@@ -219,4 +219,48 @@ pass "watch: init, idle, audit, advance only on verdict"
 grep -q 'NOT in the new one' "$T/out6/SUMMARY.md" || fail "non-fast-forward not reported"
 pass "non-fast-forward upstream update is reported"
 
+# --- publish: post once, then update that comment (fake gh) -------------------
+mkdir -p "$T/fakebin"
+cat > "$T/fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$T/gh.log"
+case "$1 $2" in
+  "pr comment") echo "https://github.com/example/repo/pull/1#issuecomment-300" ;;
+  "api -X") id="${4##*/}"; cp "${6#body=@}" "$T/patched-$id.md"; echo "https://github.com/example/repo/pull/1#issuecomment-$id" ;;
+  "api graphql") cat "$T/graphql.json" ;;
+  *) echo "fake gh: unexpected $*" >&2; exit 1 ;;
+esac
+SH
+chmod +x "$T/fakebin/gh"
+comments() {  # pages of PR comments as the GraphQL query returns them: id:viewerDidAuthor:has-marker ...
+  python3 - "$T/graphql.json" "$@" <<'PY'
+import json, sys
+pages = []
+for page in sys.argv[2:]:
+    nodes = []
+    for spec in page.split(","):
+        i, mine, marked = spec.split(":")
+        body = ("<!-- paranoid-lake-update -->\n" if marked == "1" else "") + f"comment {i}"
+        nodes.append({"fullDatabaseId": i, "viewerDidAuthor": mine == "1", "body": body})
+    pages.append({"data": {"repository": {"pullRequest": {"comments": {"nodes": nodes}}}}})
+json.dump(pages, open(sys.argv[1], "w"))
+PY
+}
+# Only someone else's comment carries the marker: post a new one.
+comments 150:0:1 250:1:0
+PATH="$T/fakebin:$PATH" "$TOOL" publish --out "$T/out1" --comment-pr 1 --github-repo example/repo >/dev/null
+grep -q '^pr comment 1 ' "$T/gh.log" || fail "no new comment posted"
+grep -q 'issues/comments/300/reactions' "$T/patched-300.md" || fail "new comment not given its reaction command"
+grep -q '^\*\*Updated ' "$T/patched-300.md" && fail "a new comment should not say it was updated"
+[ ! -e "$T/patched-150.md" ] || fail "someone else's comment was edited"
+# Our own comment exists (on the second page): update it in place.
+: > "$T/gh.log"
+comments 150:0:1 100:1:1,250:1:0
+PATH="$T/fakebin:$PATH" "$TOOL" publish --out "$T/out1" --comment-pr 1 --github-repo example/repo >/dev/null
+grep -q '^pr comment' "$T/gh.log" && fail "posted a new comment instead of updating"
+grep -q 'issues/comments/100/reactions' "$T/patched-100.md" || fail "updated comment lacks its reaction command"
+grep -q '^\*\*Updated .*\*\*  Reactions and audit reports from before' "$T/patched-100.md" || fail "updated comment does not say so"
+[ ! -e "$T/patched-150.md" ] || fail "someone else's comment was edited"
+pass "publish posts one comment per PR and updates it afterwards"
+
 echo "all tests passed"
