@@ -119,7 +119,12 @@ names = [p["name"] for p in plan["packages"]]
 assert names.count("libB") == 2 and "libA" in names, names   # once from manifest, once from --extra
 print("compare ok")
 PY
-pass "compare between manifests (+ --extra) works"
+python3 - "$T/out2/plan.json" "$T/libB@$B1..$B2" <<'PY'
+import json, shlex, sys
+repro = json.load(open(sys.argv[1]))["context"]["repro"]
+assert f" --extra {shlex.quote(sys.argv[2])} " in repro, repro
+PY
+pass "compare between manifests (+ --extra) works, and the repro command keeps --extra"
 
 # compare via git refs
 (cd "$T/root" && cp "$T/new-manifest.json" lake-manifest.json && git commit -qam "update deps")
@@ -132,7 +137,14 @@ pass "compare --base/--head works"
 grep -q postinstall "$T/out3/diffs/libB.diff" || fail "range diff"
 "$TOOL" range --repo "$T/libB" --to "$B1" --out "$T/out3b" >/dev/null
 grep -q 'entire tree is new' "$T/out3b/SUMMARY.md" || fail "range from empty tree"
-pass "range works (including from the empty tree)"
+"$TOOL" range --repo "$T/libB" --to "$B1" --extra "$T/libA@..main" --out "$T/out3c" >/dev/null
+python3 - "$T/out3c/plan.json" "$T/libA@..$A3" <<'PY'
+import json, shlex, sys
+repro = json.load(open(sys.argv[1]))["context"]["repro"]
+assert "--from" not in repro, repro                                # no empty --from
+assert f" --extra {shlex.quote(sys.argv[2])} " in repro, repro      # branch resolved to a SHA
+PY
+pass "range works (including from the empty tree, with a reproducible --extra)"
 
 # --- audit + prompt + publish (dry run) ---------------------------------------
 set +e

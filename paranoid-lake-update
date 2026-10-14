@@ -729,6 +729,11 @@ def resolve_extras(cache: RepoCache, extras: List[str]) -> List[dict]:
     return out
 
 
+def extra_flags(extras: List[dict]) -> str:
+    """`--extra` flags that reproduce already resolved extra repositories."""
+    return "".join(" --extra " + shlex.quote(f"{e['url']}@{e['old'] or ''}..{e['new']}") for e in extras)
+
+
 # ----------------------------------------------------------------------------
 # auditors
 
@@ -1081,11 +1086,12 @@ def cmd_plan(args: argparse.Namespace) -> int:
     old = read_manifest_file(mpath)
     log(f"predicting `lake update` for {root} ({len(git_packages(old))} git packages)")
     new = predict_update(old, cache)
-    changes = changes_between(old, new) + resolve_extras(cache, args.extra)
+    extras = resolve_extras(cache, args.extra)
+    changes = changes_between(old, new) + extras
     toolchain = check_toolchain(root, new, cache)
     out = make_out_dir(args.out, Path(args.cache_dir), "plan-" + root.name)
     ctx = context_for(root, "plan", f"`lake update` in {root.name}",
-                      f"paranoid-lake-update plan --audit claude   # in {root}",
+                      f"paranoid-lake-update plan{extra_flags(extras)} --audit claude   # in {root}",
                       "Predicted from the manifest and upstream branch heads; nothing from upstream was executed.")
     plan = finish_diffset(out, cache, changes, ctx, "plan", toolchain)
     return finish(out, plan, args)
@@ -1112,11 +1118,13 @@ def cmd_compare(args: argparse.Namespace) -> int:
         new_m = read_manifest_file(root / args.manifest_name)
         new_desc = f"working tree {args.manifest_name}"
     log(f"comparing {old_desc} -> {new_desc}")
-    changes = changes_between(old, entries_from_manifest(new_m)) + resolve_extras(cache, args.extra)
+    extras = resolve_extras(cache, args.extra)
+    changes = changes_between(old, entries_from_manifest(new_m)) + extras
     out = make_out_dir(args.out, Path(args.cache_dir), "compare-" + root.name)
     title = args.title or f"{root.name}: {old_desc} -> {new_desc}"
     ctx = context_for(root, "compare", title,
-                      f"paranoid-lake-update compare --base {args.base or 'origin/master'} --audit claude   # in a checkout of the PR branch")
+                      f"paranoid-lake-update compare --base {args.base or 'origin/master'}{extra_flags(extras)}"
+                      " --audit claude   # in a checkout of the PR branch")
     plan = finish_diffset(out, cache, changes, ctx, "compare", None)
     return finish(out, plan, args)
 
@@ -1131,11 +1139,13 @@ def cmd_range(args: argparse.Namespace) -> int:
     new = cache.resolve(url, args.to_rev)
     ch = {"name": name, "url": url, "old": old, "old_url": url if old else None, "new": new,
           "inputRev": args.to_rev, "inherited": False, "via": "range"}
+    extras = resolve_extras(cache, args.extra)
     out = make_out_dir(args.out, Path(args.cache_dir), "range-" + name)
     ctx = context_for(Path.cwd(), "range", f"{name} {short(old)}..{short(new)}",
-                      f"paranoid-lake-update range --repo {url} --from {old or ''} --to {new} --audit claude")
+                      f"paranoid-lake-update range --repo {url}{f' --from {old}' if old else ''} --to {new}"
+                      f"{extra_flags(extras)} --audit claude")
     ctx["description"] = f"Changes in `{url}` between `{args.from_rev or '(empty tree)'}` and `{args.to_rev}`."
-    plan = finish_diffset(out, cache, [ch] + resolve_extras(cache, args.extra), ctx, "range", None)
+    plan = finish_diffset(out, cache, [ch] + extras, ctx, "range", None)
     return finish(out, plan, args)
 
 

@@ -109,7 +109,8 @@ a workflow artifact, and once the PR exists, comment on it. The comment links ev
 upstream commit and GitHub's `old...new` compare view, so no gist or extra secret is
 needed; reviewers run the AI audit locally with
 `paranoid-lake-update compare --base origin/master --audit claude` in a checkout of
-the PR branch, which is the command quoted in the comment.
+the PR branch, plus the same `--extra` for the `mathlib-ci` pin; the comment quotes the
+exact command.
 
 ## Watching a repository (e.g. Tau Ceti)
 
