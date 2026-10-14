@@ -189,6 +189,28 @@ grep -q 'issue comment' "$T/out1/comment.md" || fail "comment lacks issue-commen
 grep -q 'VERDICT' "$T/out1/comment.md" || fail "comment lacks audit"
 pass "publish --dry-run renders comment.md"
 
+# Commit subjects must not link issues of the repository the comment is posted
+# in, nor notify anyone.
+mk_repo "$T/libC"
+echo x > "$T/libC/README.md"
+C1=$(commit_all "$T/libC" "libC v1")
+echo y >> "$T/libC/README.md"
+C2=$(commit_all "$T/libC" 'fix: `parse` (#12), GH-7 and other/repo#99; thanks @someone, @org/team and a@b.org')
+"$TOOL" range --repo "$T/libC" --from "$C1" --to "$C2" --out "$T/out7" \
+    --comment-pr 1 --github-repo example/repo --dry-run >/dev/null
+grep -qF 'fix: ˋparseˋ (`#12`), `GH-7` and other/repo#99; thanks `@someone`, `@org/team` and a@b.org' "$T/out7/comment.md" \
+    || fail "upstream refs/mentions not neutralised: $(grep 'fix:' "$T/out7/comment.md")"
+python3 - "$T/out7/plan.json" <<'PY'
+import json, sys
+plan = json.load(open(sys.argv[1]))
+plan["packages"][0]["url"] = "https://github.com/example/libC"   # as if libC were on GitHub
+json.dump(plan, open(sys.argv[1], "w"))
+PY
+"$TOOL" publish --out "$T/out7" --comment-pr 1 --github-repo example/repo --dry-run >/dev/null
+grep -qF '(example/libC#12), example/libC#7 and other/repo#99; thanks `@someone`' "$T/out7/comment.md" \
+    || fail "GitHub refs not qualified: $(grep 'fix:' "$T/out7/comment.md")"
+pass "issue references and mentions in commit subjects are neutralised"
+
 # --- watch ---------------------------------------------------------------------
 STATE="$T/watch-state.json"
 "$TOOL" watch --repo "$T/libB" --branch main --state "$STATE" >/dev/null

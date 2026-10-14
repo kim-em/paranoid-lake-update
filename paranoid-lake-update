@@ -271,6 +271,31 @@ def commit_url(url: str, rev: str) -> Optional[str]:
     return f"{w}/commit/{rev}" if w else None
 
 
+def github_slug(url: str) -> Optional[str]:
+    """`owner/repo` for a GitHub remote, else None."""
+    m = re.fullmatch(r"https://github\.com/([^/]+/[^/]+)", web_url(url) or "")
+    return m.group(1) if m else None
+
+
+def code(text: str) -> str:
+    """Inline code span for untrusted text (a backtick inside would end it early)."""
+    return "`" + text.replace("`", "ˋ") + "`"
+
+
+def inert_text(text: str, slug: Optional[str]) -> str:
+    """Upstream text (commit subjects, author names) made safe to show in a
+    comment on another repository.  GitHub resolves a bare `#123` or `GH-123`
+    against the repository the comment is posted in, so it would link an
+    unrelated issue there and add a cross-reference to its timeline: qualify it
+    as `owner/repo#123` when the upstream is on GitHub, otherwise put it in code.
+    An `@name` would notify that account or team, so it goes in code too."""
+    text = text.replace("`", "ˋ")
+    text = re.sub(r"(?<![\w.+/-])@[A-Za-z0-9][A-Za-z0-9-]*(?:/[A-Za-z0-9][A-Za-z0-9._-]*)?",
+                  lambda m: f"`{m.group(0)}`", text)
+    return re.sub(r"(?<![\w/-])(?:#|(?i:GH)-)(\d+)\b",
+                  lambda m: f"{slug}#{m.group(1)}" if slug else f"`{m.group(0)}`", text)
+
+
 # ----------------------------------------------------------------------------
 # bare repository cache
 
@@ -629,14 +654,14 @@ def write_summary(out: Path, plan: dict) -> str:
         for n in p.get("notes", []):
             lines.append(f"- **NOTE:** {n}")
         if p["high_risk_files"]:
-            lines.append("- High-risk paths touched: " + ", ".join(f"`{f}`" for f in p["high_risk_files"][:40])
+            lines.append("- High-risk paths touched: " + ", ".join(code(f) for f in p["high_risk_files"][:40])
                          + (f" (+{len(p['high_risk_files'])-40} more)" if len(p["high_risk_files"]) > 40 else ""))
         if p["binary_files"]:
-            lines.append("- Binary files: " + ", ".join(f"`{f}`" for f in p["binary_files"][:20]))
+            lines.append("- Binary files: " + ", ".join(code(f) for f in p["binary_files"][:20]))
         if p["watchlist_hits"]:
             lines.append(f"- Watchlist hits in added lines ({len(p['watchlist_hits'])}; first 30 shown):")
             for h in p["watchlist_hits"][:30]:
-                lines.append(f"  - `{h['file']}` [{h['kind']}]: `{h['line'].replace('`', 'ˋ')}`")
+                lines.append(f"  - {code(h['file'])} [{h['kind']}]: {code(h['line'])}")
     if plan.get("audits"):
         lines.append("")
         lines.append("## AI audits")
@@ -962,10 +987,11 @@ def build_comment(out: Path, plan: dict, gist: Optional[str], run_url: Optional[
             old_new = f"`{p['old'] or '(new)'}` to `{p['new'] or '(removed)'}`"
             parts.append(f"- **{p['name']}** ({p['url']}): {old_new}; " + (", ".join(bits) + "; " if bits else "") + stats)
             commits = p.get("commit_list") or []
+            slug = github_slug(p["url"])
             for c in commits[:COMMENT_MAX_COMMITS]:
                 date = (c.get("date") or "")[:10]
-                subject = (c.get("subject") or "").replace("`", "\u02cb")
-                author = re.sub(r"\s*<[^>]*>", "", c.get("author", "?"))
+                subject = inert_text(c.get("subject") or "", slug)
+                author = inert_text(re.sub(r"\s*<[^>]*>", "", c.get("author", "?")), slug)
                 parts.append(f"  - `{c['sha'][:10]}` {date} {author}: {subject}")
             if len(commits) > COMMENT_MAX_COMMITS:
                 parts.append(f"  - and {len(commits) - COMMENT_MAX_COMMITS} more; see the compare link")
