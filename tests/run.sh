@@ -127,6 +127,26 @@ pass "compare between manifests (+ --extra) works"
 [ "$(python3 -c "import json;print(sorted(p['name'] for p in json.load(open('$T/out2b/plan.json'))['packages']))")" = "['libA', 'libB']" ] || fail "compare --base/--head"
 pass "compare --base/--head works"
 
+# A new revision that is on no branch, like the head of a pull request from a fork
+# (GitHub serves those by hash at the upstream URL), must be reported.
+(cd "$T/libA" && git checkout -q -b pr && echo 'theorem a4 : 4 = 4 := rfl' >> LibA/Basic.lean)
+A4=$(commit_all "$T/libA" "libA: unmerged change")
+(cd "$T/libA" && git update-ref refs/pull/1/head "$A4" && git checkout -q main && git branch -q -D pr)
+python3 - "$T/root/lake-manifest.json" "$T/pr-manifest.json" "$A4" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+for p in m["packages"]:
+    if p["name"] == "libA":
+        p["rev"] = sys.argv[3]
+json.dump(m, open(sys.argv[2], "w"))
+PY
+"$TOOL" compare --dir "$T/root" --old-manifest "$T/root/lake-manifest.json" --new-manifest "$T/pr-manifest.json" \
+    --out "$T/out2c" >/dev/null
+grep -q 'new revision is not on `main`' "$T/out2c/SUMMARY.md" || fail "off-branch revision not reported"
+! grep -q 'new revision is not' "$T/out1/SUMMARY.md" "$T/out2/SUMMARY.md" "$T/out2b/SUMMARY.md" \
+    || fail "off-branch note on an ordinary update"
+pass "a new revision that is not on its branch is reported"
+
 # --- range ---------------------------------------------------------------------
 "$TOOL" range --repo "$T/libB" --from "$B1" --to main --out "$T/out3" >/dev/null
 grep -q postinstall "$T/out3/diffs/libB.diff" || fail "range diff"

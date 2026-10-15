@@ -85,8 +85,9 @@ SCRUTINY = """\
     `unsafe` definitions, custom Lake targets or scripts, `post_update` hooks
   - obfuscation: base64, hex escapes, string reversal, unusual unicode, code
     hidden past long whitespace or in files that would not normally be reviewed
-  - new dependencies, dependencies moving to a different URL or fork, or an old
-    revision that no longer exists upstream (history rewrite)
+  - new dependencies, dependencies moving to a different URL or fork, an old
+    revision that no longer exists upstream (history rewrite), or a new revision
+    that is not on the branch or tag it tracks (an unmerged commit)
   - commits from unfamiliar authors, or authorship that does not match the
     subject matter of the change
 """
@@ -491,6 +492,28 @@ def high_risk(path: str) -> bool:
     return any(rx.search(path) for rx in HIGH_RISK_RE)
 
 
+def off_branch_note(cache: RepoCache, url: str, rev: str, input_rev: Optional[str]) -> Optional[str]:
+    """A note when `rev` is not on what it should come from: the branch or tag
+    `input_rev`, or any branch or tag when `input_rev` is unset or names neither.
+    GitHub serves commits from forks and pull requests by hash at the upstream
+    URL, so such a commit would otherwise look like an ordinary update."""
+    if input_rev and is_sha(input_rev):
+        return None if rev == input_rev else f"new revision is not the pinned `inputRev` {input_rev}"
+    p = str(cache.open(url))
+    refs = [r for r in (f"refs/heads/{input_rev}", f"refs/tags/{input_rev}") if input_rev
+            and run(["git", "rev-parse", "--verify", "--quiet", "--end-of-options", r], cwd=p, check=False).returncode == 0]
+    if refs:
+        if any(run(["git", "merge-base", "--is-ancestor", rev, r], cwd=p, check=False).returncode == 0 for r in refs):
+            return None
+        where = f"`{input_rev}`"
+    else:
+        if git(["for-each-ref", "--count=1", "--contains", rev, "refs/heads", "refs/tags"], cwd=p).strip():
+            return None
+        where = "any branch or tag"
+    return (f"new revision is not on {where} of {url}: it may be an unmerged commit, "
+            "such as one from a fork or a pull request, which GitHub also serves at this URL")
+
+
 def produce_diff(cache: RepoCache, ch: dict, diffs_dir: Path) -> dict:
     """Write diffs/<name>.diff and diffs/<name>.log; return stats."""
     url, old, new, name = ch["url"], ch["old"], ch["new"], ch["name"]
@@ -500,6 +523,10 @@ def produce_diff(cache: RepoCache, ch: dict, diffs_dir: Path) -> dict:
         info["notes"].append(f"URL changed from {ch['old_url']} to {url}")
     if new and not cache.ensure_commit(url, new):
         raise RuntimeError(f"{name}: new revision {new} not available from {url}")
+    if new:
+        note = off_branch_note(cache, url, new, ch.get("inputRev"))
+        if note:
+            info["notes"].append(note)
     base = old
     if old:
         # The old revision may live on the old URL only (fork switch) or may have

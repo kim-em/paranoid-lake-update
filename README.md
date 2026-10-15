@@ -57,7 +57,8 @@ update PR) for an exact answer; that is what the CI integration does.
 
 ```
 SUMMARY.md            table of packages, links to upstream commits and GitHub compare views,
-                      high-risk files, watchlist hits, non-fast-forward warnings, audit verdicts
+                      high-risk files, watchlist hits, non-fast-forward and off-branch warnings,
+                      audit verdicts
 plan.json             the same, machine-readable
 diffs/<pkg>.diff      full `git diff old new`
 diffs/<pkg>.log       header, commit list with authors and dates, diffstat
